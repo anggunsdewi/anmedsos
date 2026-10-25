@@ -1,0 +1,123 @@
+# Konfigurasi crawler #KaburAjaDulu.
+# Semua parameter penelitian ada di sini; kode tidak perlu diubah untuk mengganti
+# kata kunci, periode, batas per jendela, atau sumber data.
+
+project:
+  data_dir: data            # raw/, interim/, final/ dibuat di bawah folder ini
+  log_dir: logs
+  checkpoint_file: checkpoints/state.json
+  timezone: Asia/Jakarta    # batas jendela mingguan dihitung dalam zona waktu ini
+
+# ---------------------------------------------------------------------------
+# Sumber data. Ganti `name` untuk berpindah API tanpa mengubah kode:
+#   x_api_v2  : X API v2 resmi (full-archive search)
+#   mock      : data sintetis untuk uji coba tanpa kredensial
+#   "paket.modul:NamaKelas" : provider buatan sendiri (lihat crawler/providers/example_custom.py)
+# ---------------------------------------------------------------------------
+provider:
+  name: x_api_v2
+  options:
+    endpoint: all                   # all = full-archive (/2/tweets/search/all), recent = 7 hari terakhir
+    bearer_token_env: X_BEARER_TOKEN
+    sort_order: relevancy           # relevancy atau recency (lihat README, bagian "Urutan hasil")
+    min_request_interval_seconds: 1.1   # full-archive: maks 1 request/detik
+    request_timeout_seconds: 30
+    max_retries: 6
+    backoff_base_seconds: 2
+    max_backoff_seconds: 900
+
+query:
+  lang: id
+  exclude_reposts: true
+  include_replies: true
+  include_quotes: true
+  # Tiga grup kata kunci (Tabel 2). Nama grup akan muncul di kolom matched_groups.
+  # Kata kunci berspasi otomatis dikutip sebagai frasa; awali dengan # untuk tagar.
+  groups:
+    umum:
+      - cari kerja
+      - lowongan kerja
+      - pekerjaan
+      - rekrutmen
+      - fresh graduate
+      - karier
+    spesifik:
+      - susah cari kerja
+      - PHK
+      - gaji
+      - pengangguran
+      - syarat pengalaman
+    aspirasi:
+      - "#KaburAjaDulu"
+      - kabur aja dulu
+      - kerja di luar negeri
+      - kerja di LN
+      - pindah ke luar negeri
+  # true = satu kueri per kata kunci (lebih mahal, cap dibagi ke tiap kata kunci).
+  # false = satu kueri per grup (kata kunci digabung dengan OR).
+  split_keywords: false
+
+collection:
+  start_date: 2025-01-01      # inklusif
+  end_date: 2026-06-30        # inklusif
+  window_days: 7
+  # Batas unggahan per (grup x jendela). 78 minggu x 3 grup x 22 = 5.148 unggahan mentah.
+  cap_per_window: 22
+  # Bagi tiap jendela menjadi beberapa irisan dengan cap yang dibagi rata, agar
+  # unggahan tidak menumpuk di satu hari. 1 = tanpa irisan. Lihat README sebelum mengubah.
+  slices_per_window: 1
+  # Rem pengaman biaya: berhenti jika total unggahan yang diambil mencapai angka ini.
+  max_posts_total: 6000
+
+processing:
+  # Urutan filter = urutan pencatatan di logs/process_summary.csv
+  filters:
+    - period
+    - lang
+    - repost
+    - keyword
+    - min_words
+    - job_ad
+    - spam
+    - identical_text
+  min_words: 3
+  # Saat menghitung kata: URL, mention, dan tagar dibuang dulu.
+  count_words_without_hashtags: true
+  identical_text_min_accounts: 3   # teks identik dari >= N akun berbeda dianggap bot/spam
+  job_ad:
+    min_hits: 2                    # iklan jika cocok >= min_hits pola biasa, atau 1 pola kuat
+    strong_patterns:
+      - '\binfo\s*loker\b'
+      - '#loker\w*'
+      - '\b(kirim|kirimkan)\s+(cv|lamaran)\b'
+      - '\bwe\s*(are|re)\s*hiring\b'
+    patterns:
+      - '\bloker\b'
+      - '\bdibutuhkan\b'
+      - '\bkami\s+(membuka|mencari)\b'
+      - '\b(lamar|apply)\s+(via|di|sekarang|melalui)\b'
+      - '\bkualifikasi\s*:'
+      - '\bpersyaratan\s*:'
+      - '\bpenempatan\s*:'
+      - '\b(wa|whatsapp)\s*[:.]?\s*\+?(62|0)8\d'
+      - '\bdeadline\b'
+      - '\blink\s+(pendaftaran|daftar|apply)\b'
+      - '\b(open\s+recruitment|oprec)\b'
+      - '\bhiring\b'
+      - '\bjob\s?fair\b'
+      - '\bposisi\s*:'
+  spam:
+    min_hits: 1
+    patterns:
+      - '\b(slot|gacor|maxwin|scatter|jackpot|judol)\b'
+      - '\b(depo|deposit|wd)\s*\d'
+      - '\brtp\b'
+      - '\bfollow\s*(dan|&|\+)\s*(rt|repost)\b'
+      - '\bgiveaway\b'
+      - '\b(dana|pinjaman)\s+cair\b'
+      - '\bklik\s+link\s+(di\s+)?bio\b'
+  pseudonymize:
+    salt_env: PSEUDONYM_SALT
+    replace_urls: true             # URL (t.co, x.com/<username>/...) diganti [url] agar penulis tidak terlacak
+  sample_rows: 100
+  sample_seed: 42
