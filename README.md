@@ -1,6 +1,14 @@
-# Crawler X #KaburAjaDulu
+# Crawler #KaburAjaDulu (X, Threads, TikTok)
 
-Pipeline pengumpulan data X untuk penelitian *Keresahan Ketenagakerjaan dan Aspirasi Bekerja ke Luar Negeri di Era #KaburAjaDulu*. Sumber data saat ini X API v2 resmi, tetapi sumber data dipasang lewat antarmuka provider sehingga bisa diganti ke API lain cukup dari `config.yaml`.
+Pipeline pengumpulan data media sosial untuk penelitian *Keresahan Ketenagakerjaan dan Aspirasi Bekerja ke Luar Negeri di Era #KaburAjaDulu*. Sumber data dipasang lewat antarmuka provider, jadi platform dipilih dari berkas konfigurasi:
+
+| Platform | Config | Provider | Akses | Biaya |
+|---|---|---|---|---|
+| X | `config.yaml` | X API v2 resmi | Pay-per-use | ±US$26 untuk run default |
+| Threads | `config.threads.yaml` | Threads API resmi (Meta) | Perlu App Review untuk `threads_keyword_search` | Gratis |
+| TikTok | `config.tiktok.yaml` | Actor Apify (scraping pihak ketiga) | Akun Apify | Berbayar per hasil, ada kredit gratis bulanan |
+
+Semua platform memakai kata kunci, periode, jendela mingguan, filter, pseudonimisasi, dan log yang sama. Pilih config dengan `-c`, misalnya `python -m crawler collect -c config.threads.yaml`. Detail tiap platform ada di bagian [Threads](#threads) dan [TikTok](#tiktok).
 
 ## Ringkasan alur
 
@@ -30,6 +38,39 @@ Kondisi per Oktober 2026:
 
 Pengaman biaya: `collection.max_posts_total` menghentikan pengambilan saat total unggahan mentah mencapai angka itu. Jika kredit habis (HTTP 402 atau 429 `UsageCapExceeded`), crawler berhenti dengan rapi dan bisa dilanjutkan setelah kredit diisi.
 
+## Threads
+
+Threads API resmi gratis dan punya endpoint pencarian kata kunci (`keyword_search`) dengan filter tanggal (`since`/`until`), sehingga cocok untuk jendela mingguan ([dokumentasi](https://developers.facebook.com/documentation/threads/keyword-search)).
+
+Yang perlu disiapkan:
+
+1. Buat aplikasi di [Meta for Developers](https://developers.facebook.com/) dengan use case Threads API, lalu minta izin `threads_basic` dan `threads_keyword_search`.
+2. **App Review wajib.** Tanpa persetujuan `threads_keyword_search`, hasil pencarian hanya berisi unggahan akun sendiri. Ajukan App Review dengan menjelaskan tujuan penelitian. Prosesnya bisa makan waktu dan tidak dijamin disetujui, jadi ajukan sedini mungkin.
+3. Buat access token pengguna long-lived (berlaku 60 hari), isi di `.env` sebagai `THREADS_ACCESS_TOKEN`.
+
+Batasan yang memengaruhi metode:
+
+- Satu kueri hanya satu kata kunci (tidak ada OR), jadi crawler otomatis membuat kueri per kata kunci: 16 kata kunci x 78 minggu = 1.248 kueri. Batas Threads 2.200 kueri per 24 jam per pengguna, jadi semuanya muat dalam sehari.
+- Tidak ada pagination; satu kueri maksimal 100 unggahan. Dengan cap 22 per grup per minggu (3-4 per kata kunci), ini tidak jadi masalah.
+- Tidak ada filter bahasa, jadi bahasa dideteksi saat `process` dengan `langdetect` (kolom `lang_detected` = 1).
+- Jumlah suka/balasan unggahan orang lain tidak tersedia, sehingga kolom metrik kosong. Descriptive analysis untuk keterlibatan tidak bisa dilakukan dari data Threads.
+- `search_type: TOP` mengurutkan berdasarkan popularitas, `RECENT` berdasarkan waktu. Pertimbangannya sama dengan bagian "Urutan hasil" di bawah.
+
+## TikTok
+
+**TikTok Research API resmi belum bisa dipakai dari Indonesia.** Program itu hanya untuk peneliti di AS, Eropa, Kanada, dan Brasil ([TikTok for Developers](https://developers.tiktok.com/products/research-api/)). Karena itu provider TikTok memakai actor [Apify](https://apify.com/clockworks/tiktok-scraper) yang melakukan scraping web TikTok.
+
+Yang perlu disiapkan: buat akun Apify, ambil API token di Settings > Integrations, isi di `.env` sebagai `APIFY_TOKEN`.
+
+Hal yang perlu diketahui:
+
+- **Biaya.** Apify menagih per hasil. Harga yang dikutip sumber pihak ketiga mulai sekitar US$1,70 per 1.000 video, dan filter tanggal dikenai biaya tambahan. Komentar memakai actor terpisah, sekitar US$0,50-5 per 1.000. Paket gratis Apify memberi kredit kecil per bulan. Cek harga terbaru di halaman actor, lalu uji dulu dengan `--limit-units 3` dan lihat tagihannya di Apify Console.
+- **Unit data.** Caption video (`post_type` = original) dihitung terhadap cap. Komentar (`post_type` = comment, `parent_id` = ID video) opsional lewat `comments_per_video`. Komentar tidak mengurangi cap, tetapi tetap ditagih dan tetap dihitung oleh rem `max_posts_total`. Default: 10 video per grup per minggu (2.340 video) dan 5 komentar per video.
+- **Kata kunci.** Kata kunci berawalan `#` dikirim sebagai hashtag, sisanya sebagai kueri pencarian video.
+- **Tanggal.** Pencarian TikTok tidak menjamin rentang tanggal. Filter tanggal Apify tetap dikirim, lalu hasilnya disaring ulang per jendela. Untuk minggu-minggu lama, hasil bisa kurang dari cap (status `exhausted` di `collection_log.csv`).
+- **Filter.** Video yang ditandai TikTok sebagai iklan dibuang lewat filter `sponsored`. Komentar tidak wajib memuat kata kunci (`keyword_filter_skip_types`), karena relevansinya datang dari video induknya. Bahasa komentar dideteksi dengan `langdetect`.
+- **Ketentuan layanan.** Scraping melanggar Ketentuan Layanan TikTok. Ini harus dibahas terbuka di paragraf etika, termasuk alasan tidak memakai Research API (tidak eligible dari Indonesia).
+
 ## Instalasi
 
 Butuh Python 3.10+.
@@ -45,6 +86,7 @@ cp .env.example .env               # Windows: copy .env.example .env
 Isi `.env`:
 
 - `X_BEARER_TOKEN`: Bearer Token aplikasi dari Developer Console X.
+- `THREADS_ACCESS_TOKEN` / `APIFY_TOKEN`: hanya jika memakai Threads atau TikTok.
 - `PSEUDONYM_SALT`: string acak rahasia. Buat sekali dengan `python -c "import secrets; print(secrets.token_hex(32))"` dan pakai yang sama di seluruh tim agar `user_hash` konsisten. Jangan dibagikan di repositori atau laporan.
 
 ## Cara menjalankan
@@ -93,10 +135,14 @@ Provider dipilih di `provider.name`:
 | Nilai | Keterangan |
 |---|---|
 | `x_api_v2` | X API v2 resmi (default) |
+| `threads_api` | Threads API resmi |
+| `tiktok_apify` | TikTok lewat actor Apify |
 | `mock` | Data sintetis untuk uji coba |
 | `paket.modul:NamaKelas` | Provider buatan sendiri |
 
-Untuk API lain (mis. Scweet atau API pihak ketiga), salin `crawler/providers/example_custom.py`, isi `search_page()` agar mengembalikan unggahan dengan field standar (`id`, `created_at`, `text`, `lang`, `author_id`, `post_type`, `like_count`, `reply_count`, `repost_count`, `quote_count`, `hashtags`), lalu arahkan `provider.name` ke kelas itu. Jendela mingguan, cap, checkpoint, dedup, filter, pseudonimisasi, dan log tidak perlu diubah.
+Untuk API lain (mis. Scweet atau API pihak ketiga), salin `crawler/providers/example_custom.py`, isi `search_page()` agar mengembalikan unggahan dengan field standar (`id`, `created_at`, `text`, `lang`, `author_id`, `post_type`, `like_count`, `reply_count`, `repost_count`, `quote_count`, `hashtags`), lalu arahkan `provider.name` ke kelas itu. Set `platform` (isi kolom `platform`) dan `supports_or = False` jika API tidak mendukung OR.
+
+Berkas config bisa mewarisi config lain dengan `extends: config.yaml` di baris pertama, lalu hanya menimpa bagian yang berbeda. Lihat `config.threads.yaml` dan `config.tiktok.yaml`. Jendela mingguan, cap, checkpoint, dedup, filter, pseudonimisasi, dan log tidak perlu diubah.
 
 ## Berkas luaran
 
@@ -111,7 +157,9 @@ Untuk API lain (mis. Scweet atau API pihak ketiga), salin `crawler/providers/exa
 | `logs/group_counts.csv` | Jumlah unggahan final per grup | Ya |
 | `logs/volume_estimate.csv` | Hasil `estimate` | Ya |
 
-Kolom `dataset_final.csv`: `post_id`, `created_at` (UTC), `week_start` (tanggal awal minggu, WIB), `post_type` (original/reply/quote), `lang`, `text`, `user_hash`, `like_count`, `reply_count`, `repost_count`, `quote_count`, `hashtags`, `matched_groups` (mis. `aspirasi;spesifik`).
+Untuk Threads dan TikTok, folder `data/` dan `logs/` di atas berada di subfolder `threads/` atau `tiktok/` (mis. `data/threads/final/dataset_final.csv`), sehingga data tiap platform tidak tercampur.
+
+Kolom `dataset_final.csv`: `platform` (x/threads/tiktok), `post_id`, `parent_id` (khusus komentar TikTok: ID video induk), `created_at` (UTC), `week_start` (tanggal awal minggu, WIB), `post_type` (original/reply/quote/comment), `lang`, `lang_detected` (1 jika bahasa hasil `langdetect`), `text`, `user_hash`, `like_count`, `reply_count`, `repost_count`, `quote_count`, `hashtags`, `matched_groups` (mis. `aspirasi;spesifik`).
 
 Metrik yang tidak tersedia dibiarkan kosong, tidak diisi 0, dan jumlahnya dicatat di kolom `note` baris `final_pseudonymized` pada `process_summary.csv`.
 
@@ -121,14 +169,15 @@ Angka untuk bagian Kualitas Data (mentah, setelah deduplikasi, setelah tiap filt
 
 ## Minimalisasi data
 
-Provider X hanya meminta field unggahan (`tweet.fields`) tanpa `expansions` ke objek pengguna, sehingga nama tampilan, foto profil, bio, dan lokasi tidak pernah diunduh. `author_id` hanya ada di data mentah untuk keperluan hash dan deteksi teks identik, lalu tidak ikut ke dataset final.
+Provider X hanya meminta field unggahan (`tweet.fields`) tanpa `expansions` ke objek pengguna, sehingga nama tampilan, foto profil, bio, dan lokasi tidak pernah diunduh. Provider Threads hanya meminta `id,text,timestamp,username,is_reply,is_quote_post,media_type`. Provider TikTok hanya menyimpan field yang dibutuhkan dari keluaran Apify. ID atau username penulis hanya ada di data mentah untuk keperluan hash dan deteksi teks identik, lalu tidak ikut ke dataset final.
 
 ## Catatan untuk bagian etika dan keterbatasan
 
 - **Ketentuan layanan.** Pengambilan lewat X API resmi tunduk pada X Developer Agreement and Policy, termasuk larangan membagikan ulang konten secara massal. Ini sejalan dengan rencana hanya membagikan sampel 100 baris terpseudonimkan. Jika beralih ke Scweet atau scraping antarmuka web, perlu dicatat bahwa Ketentuan Layanan X melarang crawling atau scraping tanpa izin tertulis dan robots.txt X membatasi crawler, sehingga paragraf etika perlu membahasnya secara eksplisit.
 - **Tabel 3.** Baris "Ketergantungan pada antarmuka web X yang tidak terdokumentasi" hanya relevan jika memakai Scweet. Dengan API resmi, risikonya berganti menjadi perubahan harga atau akses API. Mitigasinya tetap sama: versi pustaka dikunci (`requirements.txt`), kegagalan dicatat di log, dan pengumpulan bisa dilanjutkan dari checkpoint.
 - **Filter berbasis aturan.** Filter iklan dan spam bersifat heuristik. Sebaiknya baca manual sekitar 100 unggahan acak dari `dataset_final.csv` dan beberapa yang dibuang di `dropped_posts.csv`, lalu sesuaikan pola di `config.yaml` sebelum analisis.
-- **Lingkup geografis.** Lingkup Indonesia didekati lewat `lang:id` (deteksi bahasa oleh X), bukan lokasi pengguna.
+- **Lingkup geografis.** Lingkup Indonesia didekati lewat bahasa unggahan (`lang:id` dari X, `textLanguage` dari TikTok, atau `langdetect` untuk Threads dan komentar TikTok), bukan lokasi pengguna. `langdetect` kurang akurat untuk teks sangat pendek dan bahasa gaul.
+- **Threads dan TikTok.** Threads API resmi tunduk pada Meta Platform Terms dan Threads Developer Terms. TikTok lewat Apify adalah scraping yang melanggar Ketentuan Layanan TikTok. Jika platform penelitian berubah dari X, judul, Tabel 2, Tabel 3, dan paragraf etika di paper juga perlu disesuaikan.
 
 ## Pengujian
 
@@ -136,7 +185,7 @@ Provider X hanya meminta field unggahan (`tweet.fields`) tanpa `expansions` ke o
 python -m unittest discover tests -v
 ```
 
-Pengujian mencakup pembagian jendela (78 minggu), pembagian cap, checkpoint dan resume (termasuk crash di tengah halaman), dedup dan `matched_groups`, semua filter, pseudonimisasi, serta penanganan 429, 5xx, koneksi putus, kuota habis, dan akses ditolak pada provider X (dengan respons HTTP tiruan).
+Pengujian mencakup pembagian jendela (78 minggu), pembagian cap, checkpoint dan resume (termasuk crash di tengah halaman), dedup dan `matched_groups`, semua filter, pseudonimisasi, serta penanganan 429, 5xx, koneksi putus, kuota habis, dan akses ditolak pada provider X, Threads, dan TikTok (dengan respons HTTP tiruan). Ada juga uji alur TikTok: komentar tidak mengurangi cap, video iklan dibuang, dan bahasa komentar dideteksi.
 
 ## Struktur kode
 
@@ -153,6 +202,9 @@ crawler/
   providers/
     base.py           antarmuka SearchProvider dan format unggahan standar
     x_api_v2.py       X API v2 (rate limit, retry, backoff)
+    threads_api.py    Threads API keyword_search
+    tiktok_apify.py   TikTok via actor Apify (video + komentar)
+    http.py           klien HTTP dengan retry untuk Threads dan TikTok
     mock.py           data sintetis
     example_custom.py kerangka untuk API lain
 ```

@@ -1,0 +1,37 @@
+# Konfigurasi untuk Threads (API resmi Meta, gratis).
+# Semua yang tidak ditulis di sini diambil dari config.yaml (kata kunci, periode, filter).
+#   python -m crawler plan -c config.threads.yaml
+extends: config.yaml
+
+project:
+  data_dir: data/threads
+  log_dir: logs/threads
+  checkpoint_file: checkpoints/threads_state.json
+
+provider:
+  name: threads_api
+  options:
+    access_token_env: THREADS_ACCESS_TOKEN
+    search_type: TOP              # TOP (populer) atau RECENT (terbaru)
+    min_request_interval_seconds: 1.0
+    request_timeout_seconds: 30
+    max_retries: 6
+    backoff_base_seconds: 30      # rate limit Threads dihitung per 24 jam, jadi jeda awal dibuat lebih panjang
+    max_backoff_seconds: 3600
+
+query:
+  # Threads tidak mendukung OR: otomatis satu kueri per kata kunci.
+  # 16 kata kunci x 78 minggu = 1.248 kueri, masih di bawah batas 2.200 kueri/24 jam.
+  split_keywords: true
+
+collection:
+  # Cap 22 per grup per minggu dibagi rata ke kata kunci di grup itu (mis. 3-4 per kata kunci di grup umum).
+  cap_per_window: 22
+  max_posts_total: 6000
+
+processing:
+  filters: [period, lang, repost, keyword, min_words, job_ad, spam, identical_text]
+  lang_detection:
+    enabled: true                 # Threads tidak menyediakan kode bahasa
+    accept: [id]
+    min_probability: 0.5

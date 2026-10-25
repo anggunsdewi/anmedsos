@@ -35,6 +35,7 @@ TAILS = ["capek banget", "serius deh", "huft", "beneran", "gimana ya", "ya ampun
 
 class MockProvider(SearchProvider):
     name = "mock"
+    platform = "mock"
     max_page_size = 10
 
     def __init__(self, options=None):

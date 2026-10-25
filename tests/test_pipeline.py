@@ -106,7 +106,7 @@ class PipelineTest(unittest.TestCase):
         unit = plan_units(cfg)[0]
         # Simulasikan crash: baris tambahan tertulis tetapi checkpoint tidak diperbarui.
         state = json.loads(cfg.checkpoint_file.read_text())
-        state["units"][unit.uid].update({"done": False, "lines": 3, "cursor": "3"})
+        state["units"][unit.uid].update({"done": False, "lines": 3, "count": 3, "cursor": "3"})
         cfg.checkpoint_file.write_text(json.dumps(state))
         collect(cfg, prov, limit_units=1)
         lines = unit.raw_path.read_text().splitlines()

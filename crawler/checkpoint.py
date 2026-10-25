@@ -17,9 +17,10 @@ class Checkpoint:
             self.state.setdefault("units", {})
 
     def unit(self, uid: str) -> dict:
-        return self.state["units"].setdefault(uid, {"lines": 0, "cursor": None, "done": False, "requests": 0})
+        return self.state["units"].setdefault(uid, {"lines": 0, "count": 0, "cursor": None, "done": False, "requests": 0})
 
     def total_fetched(self) -> int:
+        """Total baris mentah (termasuk komentar), dipakai untuk rem biaya max_posts_total."""
         return sum(u.get("lines", 0) for u in self.state["units"].values())
 
     def save(self) -> None:

@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 COLLECTION_LOG_FIELDS = [
     "timestamp_utc", "window", "group", "query", "slice_start_utc", "slice_end_utc",
-    "cap", "fetched", "requests", "status",
+    "cap", "fetched", "rows_incl_comments", "requests", "status",
 ]
 
 
@@ -31,11 +31,12 @@ class Unit:
     raw_path: Path
 
 
-def plan_units(cfg: Config) -> list[Unit]:
+def plan_units(cfg: Config, force_split: bool = False) -> list[Unit]:
+    """`force_split` = True untuk provider yang tidak mendukung OR (satu kueri per kata kunci)."""
     c, q = cfg.collection, cfg.query
     windows = build_windows(cfg.start_date, cfg.end_date, int(c["window_days"]), cfg.project["timezone"])
     n_slices = int(c.get("slices_per_window", 1))
-    split = bool(q.get("split_keywords", False))
+    split = bool(q.get("split_keywords", False)) or force_split
     raw_dir = cfg.data_dir / "raw"
     units = []
     for w in windows:
@@ -66,8 +67,13 @@ def plan_units(cfg: Config) -> list[Unit]:
     return units
 
 
+def counts_toward_cap(post: dict) -> bool:
+    # Komentar (TikTok) ikut disimpan tetapi tidak mengurangi cap unggahan utama per jendela.
+    return post.get("post_type") != "comment"
+
+
 def collect(cfg: Config, provider: SearchProvider, limit_units: int | None = None) -> dict:
-    units = plan_units(cfg)
+    units = plan_units(cfg, force_split=not provider.supports_or)
     ckpt = Checkpoint(cfg.checkpoint_file)
     budget = int(cfg.collection.get("max_posts_total") or 0)
     coll_log = cfg.log_dir / "collection_log.csv"
@@ -116,16 +122,24 @@ def _collect_unit(u: Unit, provider: SearchProvider, ckpt: Checkpoint, budget: i
     query_text = provider.describe_query(u.query)
     log.info("[%s] %s (cap %d, sudah %d)", u.uid, query_text, u.cap, st["lines"])
 
-    while st["lines"] < u.cap:
+    st.setdefault("count", st["lines"])
+    while st["count"] < u.cap:
         if budget and ckpt.total_fetched() >= budget:
             return fetched_now
-        remaining = u.cap - st["lines"]
+        remaining = u.cap - st["count"]
         request_size = max(provider.min_page_size, min(provider.max_page_size, remaining))
         page = provider.search_page(u.query, u.window.start, u.window.end, request_size, st["cursor"])
         st["requests"] += 1
-        posts = page.posts[:remaining]
-        if len(page.posts) > remaining:
-            log.debug("[%s] %d unggahan ekstra dibuang karena melebihi cap.", u.uid, len(page.posts) - remaining)
+        posts, counted = [], 0
+        for p in page.posts:
+            if counts_toward_cap(p):
+                if counted >= remaining:
+                    continue
+                counted += 1
+            posts.append(p)
+        extra = sum(1 for p in page.posts if counts_toward_cap(p)) - counted
+        if extra:
+            log.debug("[%s] %d unggahan ekstra dibuang karena melebihi cap.", u.uid, extra)
         with open(u.raw_path, "a", encoding="utf-8") as f:
             for p in posts:
                 rec = {
@@ -135,12 +149,14 @@ def _collect_unit(u: Unit, provider: SearchProvider, ckpt: Checkpoint, budget: i
                     "week": u.week_label,
                     "fetched_at": now_iso(),
                     "provider": provider.name,
+                    "platform": provider.platform,
                 }
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         st["lines"] += len(posts)
+        st["count"] += counted
         st["cursor"] = page.next_cursor
         fetched_now += len(posts)
-        if st["lines"] >= u.cap:
+        if st["count"] >= u.cap:
             st["done"], st["status"], st["cursor"] = True, "cap_reached", None
         elif not page.next_cursor or not page.posts:
             st["done"], st["status"] = True, "exhausted"  # hasil pencarian di jendela ini habis sebelum cap
@@ -163,7 +179,8 @@ def _log_unit(path: Path, u: Unit, provider: SearchProvider, st: dict, status: s
         "slice_start_utc": u.window.start.isoformat(),
         "slice_end_utc": u.window.end.isoformat(),
         "cap": u.cap,
-        "fetched": st["lines"],
+        "fetched": st.get("count", st["lines"]),
+        "rows_incl_comments": st["lines"],
         "requests": st["requests"],
         "status": status,
     }])
@@ -180,7 +197,7 @@ def estimate(cfg: Config, provider: SearchProvider) -> Path:
     windows = {w.label: w for w in build_windows(cfg.start_date, cfg.end_date, int(c["window_days"]), cfg.project["timezone"])}
     seen = set()
     rows = []
-    for u in plan_units(cfg):
+    for u in plan_units(cfg, force_split=not provider.supports_or):
         key = (u.week_label, u.query.group, tuple(u.query.keywords))
         if key in seen:
             continue

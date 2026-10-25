@@ -81,6 +81,7 @@ def normalize(tweet: dict[str, Any]) -> dict[str, Any]:
 
 class XApiV2Provider(SearchProvider):
     name = "x_api_v2"
+    platform = "x"
     min_page_size = 10
 
     def __init__(

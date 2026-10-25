@@ -1,7 +1,6 @@
 .env
 data/
 checkpoints/
-logs/collection_log.csv
 __pycache__/
 *.pyc
 .venv/

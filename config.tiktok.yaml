@@ -1,0 +1,38 @@
+# Konfigurasi untuk TikTok lewat Apify (pihak ketiga, berbayar per hasil).
+# Semua yang tidak ditulis di sini diambil dari config.yaml.
+#   python -m crawler plan -c config.tiktok.yaml
+extends: config.yaml
+
+project:
+  data_dir: data/tiktok
+  log_dir: logs/tiktok
+  checkpoint_file: checkpoints/tiktok_state.json
+
+provider:
+  name: tiktok_apify
+  options:
+    token_env: APIFY_TOKEN
+    video_actor: clockworks~tiktok-scraper
+    comment_actor: clockworks~tiktok-comments-scraper
+    search_section: /video
+    # video_search_sorting: LATEST   # filter berbayar di Apify; default urutan relevansi TikTok
+    comments_per_video: 5           # 0 = hanya caption video
+    min_request_interval_seconds: 0.5
+    request_timeout_seconds: 330    # run sinkron Apify bisa sampai 300 detik
+    max_retries: 4
+    backoff_base_seconds: 10
+    max_backoff_seconds: 600
+
+collection:
+  # Lebih kecil dari X karena tiap video bisa membawa beberapa komentar.
+  # 78 minggu x 3 grup x 10 = 2.340 video (+ maks 11.700 komentar).
+  cap_per_window: 10
+  max_posts_total: 15000            # total baris video + komentar
+
+processing:
+  filters: [period, sponsored, lang, repost, keyword, min_words, job_ad, spam, identical_text]
+  keyword_filter_skip_types: [comment]
+  lang_detection:
+    enabled: true                   # komentar TikTok tidak punya kode bahasa
+    accept: [id]
+    min_probability: 0.5

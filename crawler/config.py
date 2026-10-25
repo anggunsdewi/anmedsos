@@ -79,14 +79,30 @@ REQUIRED = {
 }
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    out = dict(base)
+    for k, v in override.items():
+        out[k] = _deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def _read_with_extends(path: Path, depth: int = 0) -> dict:
+    """`extends: config.yaml` di bagian atas berkas = pakai berkas itu sebagai dasar, lalu timpa."""
+    with open(path, encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+    parent = raw.pop("extends", None)
+    if parent and depth < 5:
+        raw = _deep_merge(_read_with_extends((path.parent / parent).resolve(), depth + 1), raw)
+    return raw
+
+
 def load_config(path: str | Path, env_file: str | Path | None = None) -> Config:
     path = Path(path).resolve()
     if not path.exists():
         raise ConfigError(f"Berkas konfigurasi tidak ditemukan: {path}")
     # .env dicari di folder yang sama dengan config.yaml, kecuali ditentukan lain.
     load_dotenv(env_file or path.parent / ".env")
-    with open(path, encoding="utf-8") as f:
-        raw = yaml.safe_load(f) or {}
+    raw = _read_with_extends(path)
 
     for section, keys in REQUIRED.items():
         if section not in raw:

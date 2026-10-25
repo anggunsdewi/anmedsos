@@ -18,7 +18,7 @@ from crawler.checkpoint import Checkpoint
 from crawler.collect import collect, estimate, plan_units
 from crawler.config import ConfigError, load_config
 from crawler.process import process
-from crawler.providers import ProviderError, load_provider
+from crawler.providers import ProviderError, load_provider, provider_class
 
 
 def _provider(cfg, override: str | None):
@@ -26,8 +26,13 @@ def _provider(cfg, override: str | None):
     return load_provider(override or pc["name"], pc.get("options") or {})
 
 
+def _units(cfg, args):
+    cls = provider_class(args.provider or cfg.provider["name"])
+    return plan_units(cfg, force_split=not cls.supports_or)
+
+
 def cmd_plan(cfg, args):
-    units = plan_units(cfg)
+    units = _units(cfg, args)
     weeks = sorted({u.week_label for u in units})
     total_cap = sum(u.cap for u in units)
     print(f"Jendela   : {len(weeks)} ({weeks[0]} s.d. {weeks[-1]})")
@@ -35,7 +40,9 @@ def cmd_plan(cfg, args):
     print(f"Unit kueri: {len(units)}")
     print(f"Maks unggahan mentah (jumlah cap): {total_cap}")
     print(f"Rem biaya max_posts_total: {cfg.collection.get('max_posts_total')}")
-    prov = cfg.provider["name"]
+    prov = args.provider or cfg.provider["name"]
+    if not provider_class(prov).supports_or:
+        print("Provider ini tidak mendukung OR, jadi dibuat satu kueri per kata kunci (cap dibagi rata).")
     if prov == "x_api_v2":
         from crawler.providers import QuerySpec
         from crawler.providers.x_api_v2 import build_query
@@ -52,7 +59,7 @@ def cmd_plan(cfg, args):
 
 
 def cmd_status(cfg, args):
-    units = plan_units(cfg)
+    units = _units(cfg, args)
     ck = Checkpoint(cfg.checkpoint_file)
     done = sum(1 for u in units if ck.unit(u.uid)["done"])
     print(f"Unit selesai: {done}/{len(units)}")

@@ -16,12 +16,12 @@ from typing import Any
 # Format unggahan standar yang dikembalikan provider. Atribut lain (nama tampilan,
 # foto profil, bio, lokasi) sengaja tidak diminta maupun disimpan.
 NORMALIZED_FIELDS = (
-    "id",            # str, ID unggahan
+    "id",            # str, ID unggahan (unik di dalam satu platform)
     "created_at",    # str ISO-8601 UTC, mis. 2025-02-14T03:21:09Z
     "text",          # str, teks lengkap
     "lang",          # str | None, kode bahasa dari platform
     "author_id",     # str, ID akun (hanya untuk di-hash; tidak ikut ke dataset final)
-    "post_type",     # "original" | "reply" | "quote" | "repost"
+    "post_type",     # "original" | "reply" | "quote" | "repost" | "comment" (komentar TikTok)
     "like_count",    # int | None (None = tidak tersedia, jangan diisi 0)
     "reply_count",   # int | None
     "repost_count",  # int | None
@@ -53,6 +53,9 @@ class ProviderError(Exception):
 
 class SearchProvider(ABC):
     name = "base"
+    platform = "unknown"   # ditulis ke kolom `platform` di dataset final
+    # False jika API tidak mendukung OR dalam satu kueri; pipeline lalu membuat satu kueri per kata kunci.
+    supports_or = True
     # Batas ukuran halaman yang diterima API. Pipeline menyesuaikan permintaan ke rentang ini.
     min_page_size = 1
     max_page_size = 100

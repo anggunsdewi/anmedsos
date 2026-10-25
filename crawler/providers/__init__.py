@@ -8,12 +8,14 @@ from crawler.providers.base import NORMALIZED_FIELDS, Page, ProviderError, Query
 
 BUILTIN = {
     "x_api_v2": "crawler.providers.x_api_v2:XApiV2Provider",
+    "threads_api": "crawler.providers.threads_api:ThreadsApiProvider",
+    "tiktok_apify": "crawler.providers.tiktok_apify:TikTokApifyProvider",
     "mock": "crawler.providers.mock:MockProvider",
 }
 
 
-def load_provider(name: str, options: dict | None = None) -> SearchProvider:
-    """`name` berupa nama bawaan (x_api_v2, mock) atau path 'paket.modul:Kelas'."""
+def provider_class(name: str) -> type[SearchProvider]:
+    """`name` berupa nama bawaan (lihat BUILTIN) atau path 'paket.modul:Kelas'."""
     target = BUILTIN.get(name, name)
     if ":" not in target:
         raise ValueError(
@@ -24,7 +26,11 @@ def load_provider(name: str, options: dict | None = None) -> SearchProvider:
     cls = getattr(importlib.import_module(module_name), cls_name)
     if not issubclass(cls, SearchProvider):
         raise TypeError(f"{target} bukan turunan SearchProvider")
-    return cls(options or {})
+    return cls
 
 
-__all__ = ["NORMALIZED_FIELDS", "Page", "ProviderError", "QuerySpec", "SearchProvider", "load_provider"]
+def load_provider(name: str, options: dict | None = None) -> SearchProvider:
+    return provider_class(name)(options or {})
+
+
+__all__ = ["NORMALIZED_FIELDS", "Page", "ProviderError", "QuerySpec", "SearchProvider", "load_provider", "provider_class"]

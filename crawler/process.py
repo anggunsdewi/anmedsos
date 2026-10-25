@@ -18,7 +18,8 @@ from crawler.windows import build_windows, week_start_label
 log = logging.getLogger(__name__)
 
 FINAL_FIELDS = [
-    "post_id", "created_at", "week_start", "post_type", "lang", "text", "user_hash",
+    "platform", "post_id", "parent_id", "created_at", "week_start", "post_type", "lang", "lang_detected",
+    "text", "user_hash",
     "like_count", "reply_count", "repost_count", "quote_count", "hashtags", "matched_groups",
 ]
 METRICS = ["like_count", "reply_count", "repost_count", "quote_count"]
@@ -40,7 +41,7 @@ def deduplicate(records: list[dict]) -> list[dict]:
     by_id: dict[str, dict] = {}
     group_order = []
     for r in records:
-        pid = r["post"]["id"]
+        pid = (r.get("platform", ""), r["post"]["id"])
         if r["group"] not in group_order:
             group_order.append(r["group"])
         if pid not in by_id:
@@ -60,11 +61,14 @@ def to_final_row(r: dict, salt: str, replace_urls: bool, windows) -> dict:
     p = r["post"]
     created = datetime.fromisoformat(p["created_at"].replace("Z", "+00:00"))
     return {
+        "platform": r.get("platform", ""),
         "post_id": p["id"],
+        "parent_id": p.get("parent_id", ""),  # untuk komentar: ID video induk
         "created_at": p["created_at"],
         "week_start": week_start_label(created, windows) or r.get("week", ""),
         "post_type": p.get("post_type", ""),
         "lang": p.get("lang") or "",
+        "lang_detected": "1" if p.get("lang_detected") else "0",  # 1 = hasil langdetect, bukan dari platform
         "text": pseudonymize_text(p["text"], replace_urls),
         "user_hash": user_hash(p["author_id"], salt),
         # Nilai kosong dibiarkan kosong, tidak diisi 0.
